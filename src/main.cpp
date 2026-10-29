@@ -1,4 +1,5 @@
 #include <windows.h>
+#include <objbase.h>
 #include <stdexcept>
 #include "app/Application.h"
 int WINAPI wWinMain(HINSTANCE,HINSTANCE,PWSTR,int) {

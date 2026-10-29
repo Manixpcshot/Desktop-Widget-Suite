@@ -11,6 +11,9 @@ int main() {
         for (int i=0;i<1200;++i) s.advance(0, 1./120, frequency);
         check(s.settled(0));
     }
+    Spring bounce; bool overshot=false;
+    for(int i=0;i<240;++i) { bounce.advance(1,1./120); overshot |= bounce.value>1; }
+    check(overshot);
     Spring s; s.advance(1, 100); check(std::isfinite(s.value));
     const double old=s.value; s.advance(1, -1); check(old == s.value);
     Rect r{-1920, -200, 0, 880};
