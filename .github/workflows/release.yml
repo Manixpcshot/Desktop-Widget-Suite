@@ -1,0 +1,39 @@
+name: Build and Release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Configure
+        shell: pwsh
+        run: cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows-static -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+      - run: cmake --build build --config Release
+      - run: ctest --test-dir build -C Release --output-on-failure
+      - name: Create NSIS installer
+        shell: pwsh
+        run: |
+          $env:PATH += ";C:\Program Files (x86)\NSIS"
+          cpack --config build/CPackConfig.cmake -C Release -B build/packages
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r scripts/requirements.txt
+      - name: Generate Excel release notes
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: python scripts/generate_release_excel.py "$env:RELEASE_TAG"
+      - uses: softprops/action-gh-release@v2
+        with:
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          files: |
+            build/Release/DesktopSuite.exe
+            build/packages/*.exe
+            release_notes_*.xlsx
