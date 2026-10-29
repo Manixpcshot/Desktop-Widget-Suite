@@ -17,11 +17,15 @@ New-ItemProperty 'HKCU:\Software\DesktopSuite' -Name AutoRun -Value 0 -PropertyT
 function Wait-Window([string] $class, [string] $title = $null) {
     $deadline = (Get-Date).AddSeconds(30)
     do {
-        $h = [SuiteSmoke]::FindWindow($class, $title)
+        # PowerShell coerces a typed string $null to ""; Win32 needs an actual NULL
+        # to match any title (empty string matches only an untitled window).
+        if ([string]::IsNullOrEmpty($title)) { $h = [SuiteSmoke]::FindWindow($class, [NullString]::Value) }
+        else { $h = [SuiteSmoke]::FindWindow($class, $title) }
         if ($h -ne [IntPtr]::Zero) { return $h }
         Start-Sleep -Milliseconds 100
     } while ((Get-Date) -lt $deadline)
-    throw "Window not found: $class $title"
+    $details = (Get-Process DesktopSuite,DesktopSuite-next -ErrorAction SilentlyContinue | ForEach-Object { "$($_.Id):$($_.MainWindowTitle)" }) -join '; '
+    throw "Window not found: $class $title. Processes: $details"
 }
 function Quit-Suite([IntPtr] $window) {
     [uint32] $suitePid = 0

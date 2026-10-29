@@ -37,7 +37,7 @@ int runApplication() {
     };
     panel.show(); // Discoverable at first launch instead of an invisible tray-only startup.
     panel.onSettings=[&] { settings.show(); };
-    settings.onApply=[&] { panel.reconfigure(); };
+    settings.onApply=[&] { panel.reconfigure(); if(preference(L"AutoUpdate")) updater.check(false); };
     tray.onCommand=[&](int cmd) {
         if(cmd==1) panel.show();
         if(cmd==2) settings.show();
