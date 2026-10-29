@@ -1,4 +1,5 @@
 #include "common/Animation.h"
+#include "update/UpdatePolicy.h"
 #include <iostream>
 #include <stdexcept>
 void check(bool ok) { if (!ok) throw std::runtime_error("check failed"); }
@@ -11,6 +12,14 @@ int main() {
         for (int i=0;i<1200;++i) s.advance(0, 1./120, frequency);
         check(s.settled(0));
     }
+    check(newer("v0.1.1","0.1.0"));
+    check(newer("v1.0.0","0.99.99"));
+    check(!newer("v0.1.0","0.1.1"));
+    check(!newer("v0.1.1","0.1.1"));
+    for(auto invalid:{"v1.2", "v1.2.3.4", "v1.2.3-beta", "v01.2.3", "v-1.2.3", "v999999999999999.0.0", "1.2."}) check(!version(invalid));
+    check(validDigest("sha256:"+std::string(64,'a')));
+    check(!validDigest("sha256:"+std::string(64,'z')));
+    check(!validDigest("sha256:abc"));
     Spring bounce; bool overshot=false;
     for(int i=0;i<240;++i) { bounce.advance(1,1./120); overshot |= bounce.value>1; }
     check(overshot);

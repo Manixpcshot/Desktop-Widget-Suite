@@ -1,5 +1,8 @@
 {
   "name": "desktop-widget-suite",
-  "version-string": "0.1.0",
-  "dependencies": ["sqlite3"]
+  "version-string": "0.1.1",
+  "dependencies": [
+    "sqlite3",
+    "nlohmann-json"
+  ]
 }

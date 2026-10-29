@@ -1,6 +1,6 @@
 #pragma once
 #include "common/Animation.h"
-#include "common/D2DRenderer.h"
+#include <windows.h>
 #include "common/Database.h"
 #include <chrono>
 #include <functional>
@@ -14,13 +14,19 @@ public:
     HWND hwnd() const { return window_; }
     void show();
     std::function<void()> onSettings;
+    std::function<void()> onUpdate;
+    std::function<void(int)> onTool;
     void reconfigure();
 private:
     HWND window_ = nullptr;
     HHOOK hook_ = nullptr;
     Database& db_;
     AppConfig& config_;
-    D2DRenderer renderer_;
+    ULONG_PTR graphicsToken_=0;
+    Spring bubbles_[5], hover_[5];
+    double revealSeconds_=0;
+    int hovered_=-1;
+    int hit(POINT client) const;
     Spring spring_;
     bool open_=false, pinned_=false;
     int focus_=0;

@@ -1,9 +1,16 @@
 #include "EdgePanel.h"
 #include <windowsx.h>
 #include <stdexcept>
+#include <algorithm>
+namespace Gdiplus { using std::min; using std::max; }
+#include <gdiplus.h>
+#include "update/AutoUpdate.h"
 namespace suite {
 HWND EdgePanel::hookTarget_=nullptr;
 EdgePanel::EdgePanel(Database& db,AppConfig& c):db_(db),config_(c) {
+    Gdiplus::GdiplusStartupInput input;
+    if(Gdiplus::GdiplusStartup(&graphicsToken_,&input,nullptr)!=Gdiplus::Ok)
+        throw std::runtime_error("Cannot initialize transparent bubble graphics");
     WNDCLASSW wc{}; wc.lpfnWndProc=proc; wc.hInstance=GetModuleHandleW(nullptr);
     wc.lpszClassName=L"DesktopSuite.Edge"; wc.hCursor=LoadCursor(nullptr,IDC_ARROW);
     RegisterClassW(&wc);
@@ -24,6 +31,7 @@ EdgePanel::~EdgePanel() {
     if(hook_) UnhookWindowsHookEx(hook_);
     hookTarget_=nullptr;
     if(window_) DestroyWindow(window_);
+    if(graphicsToken_) Gdiplus::GdiplusShutdown(graphicsToken_);
 }
 void EdgePanel::remember() {
     config_.anchorX=(work_.left+work_.right)/2; config_.anchorY=(work_.top+work_.bottom)/2;
@@ -34,7 +42,7 @@ void EdgePanel::reconfigure() {
     POINT p{config_.anchorX,config_.anchorY};
     HMONITOR monitor=MonitorFromPoint(p,config_.hasAnchor?MONITOR_DEFAULTTONEAREST:MONITOR_DEFAULTTOPRIMARY);
     MONITORINFO mi{sizeof(mi)}; GetMonitorInfoW(monitor,&mi); work_=mi.rcWork;
-    SetLayeredWindowAttributes(window_,0,static_cast<BYTE>(config_.opacity),LWA_ALPHA);
+    // UpdateLayeredWindow supplies per-pixel alpha; never mix it with SetLayeredWindowAttributes.
     place();
 }
 void EdgePanel::show() {
@@ -59,42 +67,111 @@ void EdgePanel::mouse(POINT p) {
     if(IsWindowVisible(window_) && PtInRect(&bounds,p)) lastInside_=GetTickCount();
     else if(!pinned_ && GetTickCount()-lastInside_>450) open_=false;
 }
+int EdgePanel::hit(POINT client) const {
+    double scale=GetDpiForWindow(window_)/96.0;
+    double x=client.x/scale,y=client.y/scale;
+    for(int i=0;i<5;++i) {
+        double progress=std::clamp(bubbles_[i].value,0.0,1.08);
+        double cx=56+(config_.right?1:-1)*(1-progress)*112;
+        double cy=48+i*94;
+        double radius=30*progress+hover_[i].value*4;
+        if(progress>.1 && (x-cx)*(x-cx)+(y-cy)*(y-cy)<=radius*radius) return i;
+    }
+    return -1;
+}
 void EdgePanel::tick() {
-    POINT p; if(GetCursorPos(&p)) mouse(p); // Fallback if a hook is removed by Windows.
+    POINT p{}; if(GetCursorPos(&p)) mouse(p);
+    POINT local=p; ScreenToClient(window_,&local); hovered_=hit(local);
     auto now=std::chrono::steady_clock::now();
-    spring_.advance(open_?1:0,std::chrono::duration<double>(now-last_).count(),config_.speed); last_=now;
-    place(); if(IsWindowVisible(window_)) InvalidateRect(window_,nullptr,FALSE);
+    double dt=std::min(std::chrono::duration<double>(now-last_).count(),.05); last_=now;
+    revealSeconds_=open_?revealSeconds_+dt:0;
+    spring_.advance(open_?1:0,dt,config_.speed);
+    for(int i=0;i<5;++i) {
+        bubbles_[i].advance(open_ && revealSeconds_>=i*.055?1:0,dt,config_.speed);
+        hover_[i].advance(hovered_==i?1:0,dt,22);
+    }
+    place();
+    if(IsWindowVisible(window_)) paint();
 }
 void EdgePanel::place() {
     const UINT dpi=GetDpiForWindow(window_);
-    int width=MulDiv(104,dpi,96), height=std::min(MulDiv(480,dpi,96),static_cast<int>(work_.bottom-work_.top));
-    const double progress=std::clamp(spring_.value,0.0,1.04);
-    int x=config_.right?work_.right-static_cast<int>(width*progress):work_.left-width+static_cast<int>(width*progress);
+    int width=MulDiv(112,dpi,96), height=MulDiv(480,dpi,96);
+    int x=config_.right?work_.right-width:work_.left;
     SetWindowPos(window_,HWND_TOPMOST,x,work_.top+(work_.bottom-work_.top-height)/2,width,height,SWP_NOACTIVATE);
-    ShowWindow(window_,spring_.settled(0)&&!open_?SW_HIDE:SW_SHOWNOACTIVATE);
+    bool hidden=!open_;
+    for(const auto& bubble:bubbles_) hidden=hidden && bubble.settled(0);
+    ShowWindow(window_,hidden?SW_HIDE:SW_SHOWNOACTIVATE);
 }
 void EdgePanel::paint() {
-    PAINTSTRUCT ps; BeginPaint(window_,&ps);
-    auto hr=renderer_.begin(window_);
-    if(SUCCEEDED(hr)) {
-        const wchar_t* labels[]={L"AI Chat",L"Photo",L"Calendar",L"Widgets",L"Settings"};
-        const UINT32 colors[]={0x5389f5,0x37b892,0xe9b752,0xee747d,0x9d8aeb};
+    using namespace Gdiplus;
+    RECT rect{}; GetWindowRect(window_,&rect);
+    int width=rect.right-rect.left,height=rect.bottom-rect.top;
+    if(width<=0 || height<=0) return;
+    HDC screen=GetDC(nullptr),dc=CreateCompatibleDC(screen);
+    BITMAPINFO info{}; info.bmiHeader.biSize=sizeof(BITMAPINFOHEADER);
+    info.bmiHeader.biWidth=width; info.bmiHeader.biHeight=-height;
+    info.bmiHeader.biPlanes=1; info.bmiHeader.biBitCount=32; info.bmiHeader.biCompression=BI_RGB;
+    void* pixels=nullptr; HBITMAP dib=CreateDIBSection(screen,&info,DIB_RGB_COLORS,&pixels,nullptr,0);
+    if(!dib || !dc) { if(dib) DeleteObject(dib); if(dc) DeleteDC(dc); ReleaseDC(nullptr,screen); return; }
+    HGDIOBJ previous=SelectObject(dc,dib);
+    {
+        Bitmap bitmap(width,height,width*4,PixelFormat32bppPARGB,static_cast<BYTE*>(pixels));
+        Graphics g(&bitmap); g.Clear(Color(0,0,0,0));
+        g.SetSmoothingMode(SmoothingModeAntiAlias); g.SetPixelOffsetMode(PixelOffsetModeHighQuality);
+        float dpi=GetDpiForWindow(window_)/96.f; g.ScaleTransform(dpi,dpi);
         for(int i=0;i<5;++i) {
-            float a=static_cast<float>(stagger(spring_.value,i));
-            float y=48.f+i*94.f;
-            auto color=D2D1::ColorF(colors[i],a);
-            renderer_.circle(52,y,30*a,color);
-            renderer_.text(labels[i],D2D1::RectF(4,y-20,100,y+20),D2D1::ColorF(0xffffff,a));
-            if(pinned_ && focus_==i) renderer_.circle(52,y+36,2,D2D1::ColorF(0xffffff));
+            float a=static_cast<float>(std::clamp(bubbles_[i].value,0.0,1.0));
+            if(a<.005f) continue;
+            float progress=static_cast<float>(std::clamp(bubbles_[i].value,0.0,1.08));
+            float x=56+(config_.right?1.f:-1.f)*(1-progress)*112;
+            float y=48.f+i*94.f, radius=30*progress+static_cast<float>(hover_[i].value)*4;
+            // Soft shadows are separate for every orb; all gaps remain alpha-zero.
+            for(int ring=9;ring>=1;--ring) {
+                float r=radius+ring;
+                SolidBrush shadow(Color(static_cast<BYTE>(a*(10-ring)),0,0,0));
+                g.FillEllipse(&shadow,x-r,y-r+3,r*2,r*2);
+            }
+            SolidBrush black(Color(static_cast<BYTE>(a*255),12,12,14));
+            g.FillEllipse(&black,x-radius,y-radius,radius*2,radius*2);
+            Pen rim(Color(static_cast<BYTE>(a*(50+hover_[i].value*80)),130,130,140),1.f);
+            g.DrawEllipse(&rim,x-radius+.5f,y-radius+.5f,radius*2-1,radius*2-1);
+            auto saved=g.Save(); g.TranslateTransform(x,y); g.ScaleTransform(a,a);
+            Color inkColor(static_cast<BYTE>(a*235),245,245,248);
+            Pen icon(inkColor,1.7f);
+            icon.SetStartCap(LineCapRound); icon.SetEndCap(LineCapRound);
+            if(i==0) {
+                g.DrawRectangle(&icon,-12.f,-10.f,24.f,17.f);
+                g.DrawLine(&icon,-7.f,7.f,-7.f,12.f); g.DrawLine(&icon,-7.f,12.f,-1.f,7.f);
+                for(int dot=-1;dot<=1;++dot) { SolidBrush ink(inkColor); g.FillEllipse(&ink,dot*7.f-1.5f,-3.f,3.f,3.f); }
+            } else if(i==1) {
+                g.DrawRectangle(&icon,-12.f,-11.f,24.f,22.f);
+                g.DrawEllipse(&icon,3.f,-7.f,4.f,4.f);
+                g.DrawLine(&icon,-10.f,8.f,-3.f,-1.f); g.DrawLine(&icon,-3.f,-1.f,4.f,7.f); g.DrawLine(&icon,4.f,7.f,9.f,2.f);
+            } else if(i==2) {
+                g.DrawRectangle(&icon,-11.f,-10.f,22.f,22.f);
+                g.DrawLine(&icon,-11.f,-4.f,11.f,-4.f);
+                g.DrawLine(&icon,-6.f,-13.f,-6.f,-7.f); g.DrawLine(&icon,6.f,-13.f,6.f,-7.f);
+                for(int n=0;n<6;++n) { SolidBrush ink(inkColor); g.FillEllipse(&ink,-7.f+(n%3)*6,0.f+(n/3)*6,2.f,2.f); }
+            } else if(i==3) {
+                for(int n=0;n<4;++n) g.DrawRectangle(&icon,-11.f+(n%2)*13,-11.f+(n/2)*13,9.f,9.f);
+            } else {
+                g.DrawEllipse(&icon,-9.f,-9.f,18.f,18.f); g.DrawEllipse(&icon,-3.f,-3.f,6.f,6.f);
+                for(int n=0;n<8;++n) { auto rotation=g.Save(); g.RotateTransform(n*45.f); g.DrawLine(&icon,0.f,-9.f,0.f,-13.f); g.Restore(rotation); }
+            }
+            g.Restore(saved);
+            if(pinned_ && focus_==i) { SolidBrush focus(Color(static_cast<BYTE>(a*240),255,255,255)); g.FillEllipse(&focus,x-2,y+radius+7,4.f,4.f); }
         }
-        hr=renderer_.end();
+        g.Flush(FlushIntentionSync);
+        POINT dest{rect.left,rect.top},source{}; SIZE size{width,height};
+        BLENDFUNCTION blend{AC_SRC_OVER,0,static_cast<BYTE>(config_.opacity),AC_SRC_ALPHA};
+        if(!UpdateLayeredWindow(window_,screen,&dest,&size,dc,&source,0,&blend,ULW_ALPHA))
+            db_.log("Per-pixel bubble presentation failed",GetLastError());
     }
-    if(FAILED(hr)) db_.log("Direct2D render failure",hr);
-    EndPaint(window_,&ps);
+    SelectObject(dc,previous); DeleteObject(dib); DeleteDC(dc); ReleaseDC(nullptr,screen);
 }
 void EdgePanel::activate(int index) {
     if(index==4) PostMessageW(window_,WM_SUITE_SETTINGS,0,0);
-    else MessageBoxW(window_,L"This tool is planned for a later milestone.\nMilestone 1 implements the native edge panel.",L"Desktop Suite",MB_OK|MB_ICONINFORMATION);
+    else if(onTool) onTool(index);
 }
 LRESULT CALLBACK EdgePanel::proc(HWND h,UINT m,WPARAM w,LPARAM l) {
     auto* self=reinterpret_cast<EdgePanel*>(GetWindowLongPtrW(h,GWLP_USERDATA));
@@ -104,17 +181,20 @@ LRESULT CALLBACK EdgePanel::proc(HWND h,UINT m,WPARAM w,LPARAM l) {
     }
     if(!self) return DefWindowProcW(h,m,w,l);
     switch(m) {
+    case WM_SUITE_UPDATE: if(self->onUpdate) self->onUpdate(); return 0;
+    case WM_APP+3: self->show(); return 0;
     case WM_SUITE_SETTINGS: if(self->onSettings) self->onSettings(); return 0;
     case WM_SUITE_MOUSE: self->mouse(POINT{static_cast<LONG>(w),static_cast<LONG>(l)}); return 0;
     case WM_TIMER: self->tick(); return 0;
-    case WM_PAINT: self->paint(); return 0;
+    case WM_PAINT: { PAINTSTRUCT ps; BeginPaint(h,&ps); EndPaint(h,&ps); self->paint(); return 0; }
     case WM_ERASEBKGND: return 1;
     case WM_DISPLAYCHANGE: self->reconfigure(); return 0;
-    case WM_DPICHANGED: self->renderer_.reset(); self->place(); return 0;
+    case WM_DPICHANGED: self->place(); return 0;
+    case WM_RBUTTONUP: if(self->onSettings) self->onSettings(); return 0;
     case WM_LBUTTONDOWN: self->pinned_=true; SetForegroundWindow(h); SetFocus(h); return 0;
     case WM_LBUTTONUP: {
-        int y=MulDiv(GET_Y_LPARAM(l),96,GetDpiForWindow(h));
-        int i=(y-1)/94; if(i>=0 && i<5) self->activate(i); return 0;
+        int i=self->hit(POINT{GET_X_LPARAM(l),GET_Y_LPARAM(l)});
+        if(i>=0) self->activate(i); return 0;
     }
     case WM_KEYDOWN:
         if(w==VK_ESCAPE) { self->pinned_=false; self->open_=false; }

@@ -20,6 +20,7 @@ void TrayIcon::menu() {
     HMENU m=CreatePopupMenu();
     AppendMenuW(m,MF_STRING,1,L"Show / نمایش");
     AppendMenuW(m,MF_STRING,2,L"Settings / تنظیمات");
+    AppendMenuW(m,MF_STRING,4,L"Check for updates / بررسی آپدیت");
     AppendMenuW(m,MF_SEPARATOR,0,nullptr);
     AppendMenuW(m,MF_STRING,3,L"Quit / خروج");
     POINT p; GetCursorPos(&p); SetForegroundWindow(window_);

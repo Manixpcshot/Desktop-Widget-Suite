@@ -30,6 +30,9 @@ jobs:
             exit $buildExit
           }
       - run: ctest --test-dir build -C Release --output-on-failure
+      - name: Native window and updater smoke test
+        shell: pwsh
+        run: ./scripts/windows_smoke.ps1
       - name: Verify NSIS packaging
         shell: pwsh
         run: |

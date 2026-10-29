@@ -10,6 +10,7 @@ public:
     void show();
     HWND hwnd() const { return window_; }
     std::function<void()> onApply;
+    std::function<void()> onCheckUpdate;
 private:
     Database& db_; AppConfig& config_;
     HWND window_=nullptr,side_=nullptr,threshold_=nullptr,speed_=nullptr,opacity_=nullptr;

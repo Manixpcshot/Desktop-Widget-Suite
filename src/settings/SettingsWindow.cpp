@@ -1,5 +1,6 @@
 #include "SettingsWindow.h"
 #include <string>
+#include "update/AutoUpdate.h"
 namespace suite {
 void SettingsWindow::show() {
     if(!window_) {
@@ -7,7 +8,7 @@ void SettingsWindow::show() {
         wc.lpszClassName=L"DesktopSuite.Settings"; wc.hCursor=LoadCursor(nullptr,IDC_ARROW);
         wc.hbrBackground=reinterpret_cast<HBRUSH>(COLOR_WINDOW+1); RegisterClassW(&wc);
         window_=CreateWindowExW(WS_EX_CONTROLPARENT,wc.lpszClassName,L"Desktop Suite — Settings",WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU,
-            CW_USEDEFAULT,CW_USEDEFAULT,420,310,nullptr,nullptr,wc.hInstance,this);
+            CW_USEDEFAULT,CW_USEDEFAULT,440,450,nullptr,nullptr,wc.hInstance,this);
         if(!window_) { db_.log("Cannot create settings window",GetLastError()); return; }
         controls();
     }
@@ -15,6 +16,8 @@ void SettingsWindow::show() {
     SetWindowTextW(threshold_,std::to_wstring(config_.threshold).c_str());
     SendMessageW(speed_,CB_SETCURSEL,config_.speed<12?0:config_.speed<20?1:2,0);
     SetWindowTextW(opacity_,std::to_wstring(config_.opacity).c_str());
+    CheckDlgButton(window_,14,preference(L"AutoRun")?BST_CHECKED:BST_UNCHECKED);
+    CheckDlgButton(window_,15,preference(L"AutoUpdate")?BST_CHECKED:BST_UNCHECKED);
     ShowWindow(window_,SW_SHOW); SetForegroundWindow(window_);
 }
 void SettingsWindow::controls() {
@@ -33,7 +36,11 @@ void SettingsWindow::controls() {
     for(auto label:{L"Slow",L"Medium",L"Fast"}) SendMessageW(speed_,CB_ADDSTRING,0,reinterpret_cast<LPARAM>(label));
     make(L"STATIC",L"Opacity (80–255)",0,20,155,150,22,0);
     opacity_=make(L"EDIT",L"",WS_BORDER|ES_NUMBER|WS_TABSTOP,180,155,180,24,13);
-    make(L"BUTTON",L"Apply",BS_DEFPUSHBUTTON|WS_TABSTOP,180,210,180,32,1);
+    make(L"BUTTON",L"Run automatically when I sign in",BS_AUTOCHECKBOX|WS_TABSTOP,20,205,370,26,14);
+    make(L"BUTTON",L"Automatically install stable GitHub updates",BS_AUTOCHECKBOX|WS_TABSTOP,20,240,390,26,15);
+    make(L"BUTTON",L"Check for updates now",WS_TABSTOP,20,290,180,32,16);
+    make(L"BUTTON",L"Apply",BS_DEFPUSHBUTTON|WS_TABSTOP,220,290,180,32,1);
+    make(L"STATIC",L"Updates are checked on launch and hourly.\nVerified updates restart the app automatically. v" SUITE_VERSION_W,0,20,337,380,45,0);
 }
 void SettingsWindow::apply() {
     BOOL a=FALSE,b=FALSE;
@@ -45,7 +52,11 @@ void SettingsWindow::apply() {
     next.threshold=t; next.opacity=o;
     int speeds[]={8,15,24}; auto i=SendMessageW(speed_,CB_GETCURSEL,0,0);
     next.speed=speeds[i>=0 && i<3?i:1];
-    try { db_.save(next); config_=next; if(onApply) onApply(); }
+    try {
+        setAutoRun(IsDlgButtonChecked(window_,14)==BST_CHECKED);
+        setPreference(L"AutoUpdate",IsDlgButtonChecked(window_,15)==BST_CHECKED);
+        db_.save(next); config_=next; if(onApply) onApply();
+    }
     catch(const std::exception& e) { db_.log(e.what()); MessageBoxW(window_,L"Could not save settings.",L"SQLite error",MB_ICONERROR); }
 }
 LRESULT CALLBACK SettingsWindow::proc(HWND h,UINT m,WPARAM w,LPARAM l) {
@@ -54,6 +65,7 @@ LRESULT CALLBACK SettingsWindow::proc(HWND h,UINT m,WPARAM w,LPARAM l) {
         s=static_cast<SettingsWindow*>(reinterpret_cast<CREATESTRUCTW*>(l)->lpCreateParams);
         SetWindowLongPtrW(h,GWLP_USERDATA,reinterpret_cast<LONG_PTR>(s));
     }
+    if(s && m==WM_COMMAND && LOWORD(w)==16) { if(s->onCheckUpdate) s->onCheckUpdate(); return 0; }
     if(s && m==WM_COMMAND && LOWORD(w)==1) { s->apply(); return 0; }
     if(m==WM_CLOSE) { ShowWindow(h,SW_HIDE); return 0; }
     return DefWindowProcW(h,m,w,l);

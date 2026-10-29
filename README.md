@@ -1,22 +1,47 @@
-# Desktop Widget Suite — Milestone 1
+# Desktop Widget Suite — v0.1.1
 
-Native Windows 10 (1703+) / Windows 11 desktop panel, **C++20 + Win32 + Direct2D / DirectWrite**. No browser, WebView, Electron, or web UI.
+Native C++20 desktop utility for Windows 10 (1703+) / Windows 11. **No WebView, Electron or browser UI.**
 
-## Implemented
+## What changed since v0.1.0
 
-- Frameless `WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_TOPMOST` panel with uniform configurable alpha.
-- Left/right screen-edge detection via `WH_MOUSE_LL`; the hook only posts coordinates. A timer also samples the cursor in case Windows removes the hook.
-- Damped spring slide and five staggered scale/fade circular tool launchers. Hover holds the panel; leaving closes it after 450 ms.
-- Tray menu: Show, Settings, Quit; double-click to show/pin. Tray icon restored after Explorer restarts.
-- Native settings: edge, trigger distance, spring speed, opacity. SQLite persists these plus the last monitor's desktop anchor (restored to the nearest available monitor).
-- Per-monitor V2 DPI manifest, negative-coordinate monitor support, DirectWrite Unicode text, keyboard panel controls.
-- CMake/vcpkg static SQLite, portable core tests, SQLite round-trip tests on Windows, Windows CI, tag-triggered EXE + NSIS installer + Persian Excel release notes.
+- Five separate-looking **black floating orbs**, white vector icons, soft individual shadows and genuinely transparent gaps. No rectangular panel background. Per-pixel premultiplied alpha is presented with `UpdateLayeredWindow`; native GDI+ draws this surface (the Direct2D/DirectWrite renderer remains available for future tools).
+- Independent spring slide/scale per orb, staggered entrance and spring hover enlargement. Clicks hit actual circular shapes, not full rectangular rows.
+- The orbs open on launch; launching again shows the existing instance. Tray → Show pins them, Escape closes them, hovering a chosen screen edge reveals them again. Right-click an orb for Settings.
+- Functional **local calendar/live clock**, **SQLite-backed autosaving Unicode quick note**, and **fit-to-window native JPG/PNG/BMP image viewer**.
+- **Run on Windows sign-in** and **automatic stable GitHub updates**, both enabled by default and switchable in Settings → Apply. Tray/Settings also provide a manual update check.
 
-**Scope:** AI Chat, Photo, Calendar and Widgets are explicitly marked future tools; they do not yet open functional editors/widgets. Dark-mode integration, UI Automation providers, dedicated SVG icons, background file/HTTP workers, RTL chat editing, and the remaining requested milestones are not implemented. The panel uses a dark palette, not automatic OS theme detection. DirectWrite handles Unicode shaping; there is no separate Uniscribe integration yet. No AI key is requested or stored in this milestone.
+**Not a complete suite:** AI Chat is explicitly unavailable; no API key is collected. The photo tool is an image viewer, not yet an editor. Calendar is currently Gregorian, not the requested Persian/Islamic conversion. Notes are a single quick-note window, not a complete widgets manager. Automatic OS theme detection and full UI Automation remain future work.
 
-## Build on Windows (Visual Studio 2022 / Windows SDK)
+## Install and use
 
-Install CMake 3.21+, the Desktop development with C++ workload, Git, and vcpkg:
+Download the x64 EXE or NSIS installer from GitHub Releases. Run once. The executable creates/launches its per-user managed copy:
+
+```
+%LOCALAPPDATA%\DesktopSuite\bin\DesktopSuite.exe
+```
+
+This lets updates replace the app **without administrator privileges**, including when the launcher was installed under Program Files. Later launches from the original EXE redirect to the managed copy; a newer manually downloaded EXE can upgrade it when the application is closed. A second instance brings the existing panel into view.
+
+Settings and notes: `%LOCALAPPDATA%\DesktopSuite\suite.db`. Update/startup preferences: `HKCU\Software\DesktopSuite`. Sign-in entry: `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\DesktopSuite` (quoted managed EXE path).
+
+Five icons from top to bottom: AI (unavailable), image viewer, calendar/clock, quick notes, settings. Up/Down/Tab selects, Enter/Space activates, Escape closes. Use tray → Quit to fully exit; closing a utility window only hides it. Notes autosave changed text every 1.5 seconds and when closing/quitting.
+
+## Update behavior and trust boundary
+
+- Checks `https://api.github.com/repos/Manixpcshot/Desktop-Widget-Suite/releases/latest` on launch and hourly, using native WinHTTP on a worker thread. No telemetry, API keys or GitHub tokens. Public API rate limits/network failures are logged, never treated as an update.
+- Accepts only strictly newer stable `vMAJOR.MINOR.PATCH` releases; ignores drafts/prereleases, missing assets and downgrades.
+- Downloads **only `DesktopSuite.exe`** from this repository's exact release URL over HTTPS. Limits metadata to 1 MiB and the EXE to 64 MiB. Requires GitHub's `sha256:` asset digest, checks length, PE magic, file-resource version and SHA256 before staging.
+- **Trusts the repository owner and GitHub HTTPS/digest metadata**, not an independent signing key. Binaries are not yet Authenticode-signed. This is integrity checking, not an independent publisher-signature guarantee.
+- Verified background updates automatically restart the application. A manual check asks before restarting. Notes flush on graceful exit. Turn auto-update off in Settings if automatic restarts are unwanted.
+- The staged new EXE runs as a native helper, waits for the current PID to exit, preserves `bin\DesktopSuite.exe.bak`, copies itself to the fixed managed path, and relaunches it. Copy/launch errors restore the old executable where possible. There is **no shell command or PowerShell updater**.
+- A launch that immediately crashes after successful `CreateProcess` is **not automatically detected/rolled back**. Keep the backup for manual recovery. Network shutdown can wait for a bounded in-flight request; it never blocks the interactive message loop while checking.
+- **v0.1.0 did not contain an updater**: install v0.1.1 manually once. Future stable releases with valid assets can then install automatically. Publishing commits alone is not an update; a newer GitHub Release is required.
+
+To remove completely: disable Run on sign-in and Auto-update, Apply, Quit from tray, uninstall the launcher if installed, then delete `%LOCALAPPDATA%\DesktopSuite` and optionally `HKCU\Software\DesktopSuite`. The SQLite database is intentionally preserved by the installer uninstaller; its managed copy currently requires the explicit cleanup above.
+
+## Build
+
+Visual Studio 2022 C++ workload + Windows SDK, CMake 3.21+, Git, vcpkg:
 
 ```powershell
 git clone https://github.com/microsoft/vcpkg C:/dev/vcpkg
@@ -27,13 +52,9 @@ ctest --test-dir build -C Release --output-on-failure
 ./build/Release/DesktopSuite.exe
 ```
 
-The manifest installs SQLite automatically. curl and JSON will be added with the AI milestone, rather than shipping unused dependencies. Settings/logs live in `%LOCALAPPDATA%/DesktopSuite/suite.db`; no administrator privileges needed. Startup failures use a message box if SQLite is not yet available; subsequent render/hook/persistence failures are logged in the `errors` table. SQLite operations are small synchronous UI-thread transactions in this milestone (no HTTP or large file operations yet).
+vcpkg installs static SQLite and nlohmann/json. WinHTTP, BCrypt, GDI+, common controls and Direct2D/DirectWrite are Windows system libraries. No external HTTP DLLs. Startup failures use a message box; later update/render/persistence errors go to SQLite `errors`.
 
-### Usage
-
-Move the cursor to the right edge (default). Use tray → Settings to choose the left edge. Tray → Show pins the panel for keyboard navigation: Up/Down/Tab changes tool; Enter/Space activates; Escape closes. Clicking elsewhere unpins it. Settings uses standard Win32 controls with Tab navigation. The panel's position is edge-constrained, vertically centered in the selected monitor's work area, not freely draggable.
-
-### Portable tests (Linux/macOS)
+Portable tests:
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -41,27 +62,10 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-These only validate the numerical spring, stagger, and monitor-edge geometry, not Windows UI. Windows CI additionally compiles the native app and runs SQLite persistence tests.
+Tests cover springs/bounce, stagger, negative-coordinate monitor edges, strict release version comparisons and digest syntax. Windows additionally runs SQLite settings/Unicode note round-trips and `scripts/windows_smoke.ps1`: real window creation, calendar/note click dispatch, per-user bootstrap, graceful exit, native staged update replacement/relaunch, backup/hash verification and per-pixel renderer error-log checks. This is **not** an end-to-end test of downloading a future GitHub release or a visual smoothness/accessibility certification.
 
-## Windows manual acceptance checklist (required before tagging)
+## Release and remaining manual checks
 
-- [ ] Launch without a console, move to both edges, verify stagger/bounce, hover hold and close delay.
-- [ ] Tray Show/Settings/Quit; Explorer restart re-adds icon; second launch exits without duplicating hooks/tray.
-- [ ] Change all settings; quit/relaunch and verify settings/last monitor restored.
-- [ ] Test negative-coordinate monitors, top/bottom taskbars, 100/150/200% DPI, disconnect selected monitor.
-- [ ] Keyboard-only operation, Persian text shaping, no flicker after suspend/resume, installer/uninstaller smoke test.
+Tag a tested commit `vX.Y.Z`; GitHub Actions builds/tests and uploads `DesktopSuite.exe`, NSIS installer and Persian RTL Excel notes. Keep CMake/resource/manifest versions synchronized. The release's exact standalone EXE filename and GitHub digest must be retained for auto-updates. Runner-provided vcpkg is not revision-pinned yet.
 
-The automated tests cannot establish these visual/interactive properties.
-
-## Releases
-
-After CI **and** the Windows manual checklist pass, tag the tested commit `vX.Y.Z`. The tag workflow runs tests, creates a static-dependency EXE, NSIS installer (NSIS must be installed), and `release_notes_vX.Y.Z.xlsx`, and publishes a GitHub release. Keep CMake/resource/manifest versions in sync for later releases. The workflow uses the runner-provided vcpkg; pin its revision for reproducible production builds. Uninstaller leaves the per-user database intact.
-
-This Arena session pushes only its assigned working branch. Publishing a tag/release should be done only after verification; no tag is generated by the application or ordinary build.
-
-## Next milestones
-
-2. Calendar conversion algorithms with reference-date tests, clock/popover and widget persistence.
-3. OpenAI-compatible streaming chat, DPAPI-protected keys, scoped agent tools and explicit command confirmation.
-4. WIC photo canvas, command-based undo/redo, RTL text, drawing/filter tools.
-5. Accessibility, OS themes, hardening, installer and end-to-end release validation.
+Before a production release, manually verify actual appearance/smoothness, mixed-DPI/negative-coordinate monitors, high-contrast/accessibility, desktop click-through gaps, suspend/resume, proxy/offline behavior, real newer-release download/restart, and uninstall cleanup. Automated CI cannot establish all of these properties.
