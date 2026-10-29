@@ -27,8 +27,18 @@ jobs:
       - name: Create NSIS installer
         shell: pwsh
         run: |
+          choco install nsis --yes --no-progress
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $env:PATH += ";C:\Program Files (x86)\NSIS"
-          cpack --config build/CPackConfig.cmake -C Release -B build/packages
+          cpack --config build/CPackConfig.cmake -C Release -B build/packages 2>&1 | Tee-Object -Variable packLog
+          $packExit = $LASTEXITCODE
+          if ($packExit -ne 0) {
+            $packLog | ForEach-Object { Write-Output "::error::$_" }
+            Get-ChildItem build/packages -Recurse -Filter '*.log' | ForEach-Object {
+              Get-Content $_.FullName -Tail 30 | ForEach-Object { Write-Output "::error::$_" }
+            }
+            exit $packExit
+          }
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
