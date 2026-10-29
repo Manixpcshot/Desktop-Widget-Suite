@@ -1,0 +1,8 @@
+/build*/
+/out/
+/vcpkg/
+*.db
+*.db-shm
+*.db-wal
+release_notes_*.xlsx
+__pycache__/

@@ -1,0 +1,58 @@
+name: Build and Test
+on:
+  push:
+    branches: ['main', 'arena/**']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  portable-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build build && ctest --test-dir build --output-on-failure
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure (static dependencies)
+        shell: pwsh
+        run: cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows-static -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+      - name: Build native Windows application
+        shell: pwsh
+        run: |
+          cmake --build build --config Release 2>&1 | Tee-Object -Variable buildLog
+          $buildExit = $LASTEXITCODE
+          if ($buildExit -ne 0) {
+            $buildLog | Where-Object { $_ -match '(?i)error' } | ForEach-Object { Write-Output "::error::$_" }
+            exit $buildExit
+          }
+      - run: ctest --test-dir build -C Release --output-on-failure
+      - name: Native window and updater smoke test
+        shell: pwsh
+        run: |
+          try { ./scripts/windows_smoke.ps1 }
+          catch { Write-Output "::error::$($_.Exception.Message)"; throw }
+      - name: Verify NSIS packaging
+        shell: pwsh
+        run: |
+          choco install nsis --yes --no-progress
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $env:PATH += ";C:\Program Files (x86)\NSIS"
+          cpack --config build/CPackConfig.cmake -C Release -B build/packages 2>&1 | Tee-Object -Variable packLog
+          $packExit = $LASTEXITCODE
+          if ($packExit -ne 0) {
+            $packLog | ForEach-Object { Write-Output "::error::$_" }
+            Get-ChildItem build/packages -Recurse -Filter '*.log' | ForEach-Object {
+              Get-Content $_.FullName -Tail 30 | ForEach-Object { Write-Output "::error::$_" }
+            }
+            exit $packExit
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DesktopSuite-windows-x64
+          path: |
+            build/Release/DesktopSuite.exe
+            build/packages/*.exe
