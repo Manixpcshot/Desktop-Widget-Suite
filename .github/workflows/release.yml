@@ -24,6 +24,11 @@ jobs:
             exit $buildExit
           }
       - run: ctest --test-dir build -C Release --output-on-failure
+      - name: Native window and updater smoke test
+        shell: pwsh
+        run: |
+          try { ./scripts/windows_smoke.ps1 }
+          catch { Write-Output "::error::$($_.Exception.Message)"; throw }
       - name: Create NSIS installer
         shell: pwsh
         run: |

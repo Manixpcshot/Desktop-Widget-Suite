@@ -44,6 +44,19 @@ if(WIN32)
   set(CPACK_NSIS_DISPLAY_NAME "Desktop Widget Suite")
   set(CPACK_NSIS_EXECUTABLES_DIRECTORY ".")
   set(CPACK_PACKAGE_EXECUTABLES "DesktopSuite" "Desktop Widget Suite")
+  set(CPACK_NSIS_EXTRA_UNINSTALL_COMMANDS [[
+    FindWindow $0 "DesktopSuite.Edge"
+    StrCmp $0 0 suite_cleanup
+      MessageBox MB_OK|MB_ICONEXCLAMATION "Please quit Desktop Suite from the tray before uninstalling."
+      Abort
+    suite_cleanup:
+    DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "DesktopSuite"
+    ReadRegStr $1 HKCU "Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders" "Local AppData"
+    StrCmp $1 "" suite_cleanup_done
+      RMDir /r "$1\DesktopSuite\bin"
+      RMDir /r "$1\DesktopSuite\updates"
+    suite_cleanup_done:
+  ]])
   include(CPack)
 else()
   message(STATUS "Non-Windows host: building portable animation/geometry tests only")

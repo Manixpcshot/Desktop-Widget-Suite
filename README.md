@@ -37,7 +37,7 @@ Five icons from top to bottom: AI (unavailable), image viewer, calendar/clock, q
 - A launch that immediately crashes after successful `CreateProcess` is **not automatically detected/rolled back**. Keep the backup for manual recovery. Network shutdown can wait for a bounded in-flight request; it never blocks the interactive message loop while checking.
 - **v0.1.0 did not contain an updater**: install v0.1.1 manually once. Future stable releases with valid assets can then install automatically. Publishing commits alone is not an update; a newer GitHub Release is required.
 
-To remove completely: disable Run on sign-in and Auto-update, Apply, Quit from tray, uninstall the launcher if installed, then delete `%LOCALAPPDATA%\DesktopSuite` and optionally `HKCU\Software\DesktopSuite`. The SQLite database is intentionally preserved by the installer uninstaller; its managed copy currently requires the explicit cleanup above.
+To remove: Quit from tray, then uninstall the launcher. The NSIS uninstaller refuses to continue while the app window exists, removes the current user’s sign-in entry and managed `bin`/`updates` copies, and preserves the SQLite database and preferences. For a standalone EXE, disable Run on sign-in and Auto-update, Apply, Quit, then delete `%LOCALAPPDATA%\DesktopSuite`. To erase all saved data after uninstall, delete that directory and optionally `HKCU\Software\DesktopSuite`. Other Windows users’ per-user copies are not removed.
 
 ## Build
 
