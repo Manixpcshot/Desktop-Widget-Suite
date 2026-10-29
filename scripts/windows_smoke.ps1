@@ -65,7 +65,7 @@ try {
     if (-not (Test-Path "$managed.bak")) { throw 'Update rollback backup missing' }
     if ((Get-FileHash $managed).Hash -ne (Get-FileHash 'build/Release/DesktopSuite.exe').Hash) { throw 'Updated file hash mismatch' }
     Quit-Suite $newPanel | Out-Null
-    python -c "import sqlite3,os; p=os.path.join(os.environ['LOCALAPPDATA'],'DesktopSuite','suite.db'); c=sqlite3.connect(p); e=c.execute('SELECT message,code FROM errors WHERE message LIKE ''%presentation failed%''').fetchall(); assert not e,e; print('Native window creation, per-pixel presentation and updater replacement smoke test passed')"
+    python -c "import sqlite3,os; p=os.path.join(os.environ['LOCALAPPDATA'],'DesktopSuite','suite.db'); c=sqlite3.connect(p); e=c.execute('SELECT message,code FROM errors WHERE message LIKE ?',('%presentation failed%',)).fetchall(); assert not e,e; print('Native window creation, per-pixel presentation and updater replacement smoke test passed')"
     if ($LASTEXITCODE -ne 0) { throw 'Rendering error found in SQLite log' }
 } finally {
     Get-Process DesktopSuite,DesktopSuite-next -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue

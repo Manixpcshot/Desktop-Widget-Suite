@@ -28,6 +28,7 @@ int runApplication() {
         auto status=updater.result();
         db.log(status.message);
         if(status.ready) {
+            if(!status.manual && !preference(L"AutoUpdate")) return;
             if(!status.manual || MessageBoxW(panel.hwnd(),L"A verified update is ready. Restart and install now?",L"Desktop Suite update",MB_YESNO|MB_ICONINFORMATION)==IDYES) {
                 if(updater.apply()) PostQuitMessage(0);
                 else MessageBoxW(panel.hwnd(),L"Could not start update helper. Current version is unchanged.",L"Update failed",MB_ICONERROR);

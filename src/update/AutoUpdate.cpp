@@ -124,7 +124,9 @@ bool handleUpdateCommand() {
     else require(GetLastError()==ERROR_INVALID_PARAMETER,"Cannot wait for the update parent process");
     auto target=userDirectory()/L"bin"/L"DesktopSuite.exe",backup=target; backup+=L".bak";
     // Both target and backup are fixed per-user paths; no arbitrary shell/target arguments.
-    require(MoveFileExW(target.c_str(),backup.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH)!=FALSE,"Cannot back up current executable");
+    if(!MoveFileExW(target.c_str(),backup.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH)) {
+        launch(target); throw std::runtime_error("Cannot back up current executable; current version relaunched");
+    }
     if(!CopyFileW(executablePath().c_str(),target.c_str(),FALSE)) {
         MoveFileExW(backup.c_str(),target.c_str(),MOVEFILE_REPLACE_EXISTING); launch(target);
         throw std::runtime_error("Update replacement failed; previous version restored");

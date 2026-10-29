@@ -1,6 +1,7 @@
 #include "NativeTools.h"
 #include <algorithm>
 namespace Gdiplus { using std::min; using std::max; }
+#include <objidl.h>
 #include <gdiplus.h>
 #include <commctrl.h>
 #include <shobjidl.h>

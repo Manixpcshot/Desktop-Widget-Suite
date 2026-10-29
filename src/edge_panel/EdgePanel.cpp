@@ -3,6 +3,7 @@
 #include <stdexcept>
 #include <algorithm>
 namespace Gdiplus { using std::min; using std::max; }
+#include <objidl.h>
 #include <gdiplus.h>
 #include "update/AutoUpdate.h"
 namespace suite {
